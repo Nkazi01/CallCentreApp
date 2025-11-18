@@ -28,6 +28,7 @@ export default function AgentDashboard() {
   const newLeads = agentLeads.filter((lead) => lead.status === 'New');
   const contactedLeads = agentLeads.filter((lead) => lead.status === 'Contacted');
   const convertedLeads = agentLeads.filter((lead) => lead.status === 'Converted');
+  const conversionRate = agentLeads.length > 0 ? (convertedLeads.length / agentLeads.length) * 100 : 0;
   const recentLeads = agentLeads
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 10);
@@ -57,7 +58,7 @@ export default function AgentDashboard() {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <div className="flex items-center justify-between">
             <div>
@@ -102,6 +103,18 @@ export default function AgentDashboard() {
             </div>
             <div className="w-12 h-12 bg-status-success/10 rounded-full flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-status-success" />
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-text-secondary">Conversion Rate</p>
+              <p className="text-2xl font-bold text-text-primary mt-1">{conversionRate.toFixed(1)}%</p>
+            </div>
+            <div className="w-12 h-12 bg-primary-cta/10 rounded-full flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-primary-cta" />
             </div>
           </div>
         </Card>

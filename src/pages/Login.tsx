@@ -11,7 +11,7 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, authError } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -21,19 +21,18 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const success = await login(username, password);
-      if (success) {
+      const authenticatedUser = await login(username, password);
+      if (authenticatedUser) {
         showToast('Login successful!', 'success');
-        const users = JSON.parse(localStorage.getItem('iy-finance-users') || '[]');
-        const user = users.find((u: any) => u.username === username);
-        if (user?.role === 'manager') {
+        if (authenticatedUser.role === 'manager') {
           navigate('/manager/dashboard');
         } else {
           navigate('/agent/dashboard');
         }
       } else {
-        setError('Invalid username or password');
-        showToast('Invalid credentials', 'error');
+        const friendlyError = authError?.message || 'Invalid username/email or password';
+        setError(friendlyError);
+        showToast('Login failed. Please check your credentials.', 'error');
       }
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -66,13 +65,13 @@ export default function Login() {
           )}
 
           <Input
-            label="Username"
+            label="Username or Email"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
             autoFocus
-            placeholder="Enter your username"
+            placeholder="Enter your username or email"
           />
 
           <Input
@@ -104,7 +103,18 @@ export default function Login() {
 
         <div className="mt-6 pt-6 border-t border-border">
           <p className="text-xs text-text-secondary text-center">
-            Default credentials: agent1/agent123 or manager/manager123
+            Use your company-issued credentials. Contact an administrator if you need access.
+          </p>
+          <p className="text-xs text-text-secondary text-center mt-2">
+            Administrators can register accounts via the&nbsp;
+            <button
+              type="button"
+              className="text-primary-cta hover:underline"
+              onClick={() => navigate('/register')}
+            >
+              secure registration page
+            </button>
+            .
           </p>
         </div>
       </div>

@@ -12,10 +12,20 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const handleLogout = () => {
     logout();
     navigate('/');
+  };
+
+  const handleSearch = () => {
+    const query = searchTerm.trim();
+    if (!query) return;
+
+    const targetRoute = user?.role === 'manager' ? '/manager/leads' : '/agent/leads';
+    navigate(targetRoute, { state: { searchQuery: query } });
+    setSearchTerm('');
   };
 
   return (
@@ -48,7 +58,22 @@ export default function Header({ onMenuClick }: HeaderProps) {
               type="text"
               placeholder="Search leads..."
               className="bg-transparent border-none outline-none text-white placeholder-white/70 flex-1"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSearch();
+                }
+              }}
             />
+            <button
+              type="button"
+              onClick={handleSearch}
+              className="text-sm font-medium text-white/80 hover:text-white transition"
+            >
+              Search
+            </button>
           </div>
 
           <button className="p-2 rounded-md hover:bg-white/10 relative">

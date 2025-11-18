@@ -8,7 +8,11 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-12 text-text-secondary">Checking authentication…</div>;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;

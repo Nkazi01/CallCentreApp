@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLeads } from '../../hooks/useLeads';
 import { Lead } from '../../types/lead';
@@ -13,18 +14,36 @@ import Button from '../../components/common/Button';
 import { Textarea } from '../../components/common/Input';
 import { useToast } from '../../context/ToastContext';
 import { Search, Filter, Eye, Edit, MessageSquare } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+
+interface BankDetails {
+  bank_name: string;
+  account_number: string;
+  branch_code: string;
+  account_type: string;
+}
 
 export default function MyLeads() {
   const { user } = useAuth();
-  const { leads, updateLeadData } = useLeads();
+  const { leads, updateLeadData, refreshLeads } = useLeads();
   const { showToast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
+  const location = useLocation();
+  const searchQuery = (location.state as { searchQuery?: string } | null)?.searchQuery ?? '';
+  const [searchTerm, setSearchTerm] = useState(searchQuery);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [serviceFilter, setServiceFilter] = useState<string>('All');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [newStatus, setNewStatus] = useState<Lead['status']>('New');
+  const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
+  const [loadingBankDetails, setLoadingBankDetails] = useState(false);
+
+  useEffect(() => {
+    if (searchQuery) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
 
   const agentLeads = useMemo(() => {
     return leads.filter((lead) => lead.capturedBy === user?.id);
@@ -55,10 +74,26 @@ export default function MyLeads() {
     return <Badge variant={variants[status]}>{status}</Badge>;
   };
 
-  const handleViewLead = (lead: Lead) => {
+  const handleViewLead = async (lead: Lead) => {
     setSelectedLead(lead);
     setNewStatus(lead.status);
     setIsModalOpen(true);
+    setLoadingBankDetails(true);
+    
+    // Fetch banking details
+    const { data, error } = await supabase
+      .from('bank_details')
+      .select('bank_name, account_number, branch_code, account_type')
+      .eq('lead_id', lead.id)
+      .maybeSingle();
+    
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to fetch banking details', error);
+    } else {
+      setBankDetails(data);
+    }
+    setLoadingBankDetails(false);
   };
 
   const handleAddNote = () => {
@@ -83,16 +118,25 @@ export default function MyLeads() {
     setSelectedLead({ ...selectedLead, callHistory: updatedCallHistory });
   };
 
-  const handleUpdateStatus = () => {
+  const handleUpdateStatus = async () => {
     if (!selectedLead) return;
 
-    updateLeadData(selectedLead.id, {
-      status: newStatus,
-      convertedAt: newStatus === 'Converted' ? new Date().toISOString() : undefined,
-    });
+    try {
+      await updateLeadData(selectedLead.id, {
+        status: newStatus,
+        convertedAt: newStatus === 'Converted' ? new Date().toISOString() : undefined,
+      });
 
-    showToast('Status updated successfully', 'success');
-    setSelectedLead({ ...selectedLead, status: newStatus });
+      // Refresh leads to get updated data - this will trigger a re-render
+      await refreshLeads();
+      
+      // Update selectedLead with new status immediately
+      setSelectedLead({ ...selectedLead, status: newStatus, convertedAt: newStatus === 'Converted' ? new Date().toISOString() : selectedLead.convertedAt });
+
+      showToast('Status updated successfully', 'success');
+    } catch (error) {
+      showToast('Failed to update status', 'error');
+    }
   };
 
   return (
@@ -204,7 +248,10 @@ export default function MyLeads() {
       {/* Lead Detail Modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setBankDetails(null);
+        }}
         title={selectedLead ? `Lead ${selectedLead.leadNumber}` : ''}
         size="lg"
       >
@@ -253,6 +300,34 @@ export default function MyLeads() {
                   Update Status
                 </Button>
               </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <h3 className="font-semibold mb-3">Banking Details</h3>
+              {loadingBankDetails ? (
+                <p className="text-sm text-text-secondary">Loading banking details...</p>
+              ) : bankDetails ? (
+                <div className="grid grid-cols-2 gap-4 bg-secondary-bg p-4 rounded-md">
+                  <div>
+                    <p className="text-sm text-text-secondary">Bank Name</p>
+                    <p className="font-medium">{bankDetails.bank_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Account Number</p>
+                    <p className="font-medium">{bankDetails.account_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Branch Code</p>
+                    <p className="font-medium">{bankDetails.branch_code}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Account Type</p>
+                    <p className="font-medium">{bankDetails.account_type}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-text-secondary">No banking details available</p>
+              )}
             </div>
 
             <div className="border-t border-border pt-4">

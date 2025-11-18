@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastContext';
 import Layout from './components/layout/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import AgentDashboard from './pages/agent/Dashboard';
 import CaptureLead from './pages/agent/CaptureLead';
 import MyLeads from './pages/agent/MyLeads';
@@ -14,13 +15,21 @@ import Reports from './pages/manager/Reports';
 import Services from './pages/Services';
 
 function AppRoutes() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="flex items-center justify-center min-h-screen text-text-secondary">Loading application…</div>;
+  }
 
   return (
     <Routes>
       <Route
         path="/"
         element={isAuthenticated ? <Navigate to={user?.role === 'manager' ? '/manager/dashboard' : '/agent/dashboard'} replace /> : <Login />}
+      />
+      <Route
+        path="/register"
+        element={isAuthenticated ? <Navigate to={user?.role === 'manager' ? '/manager/dashboard' : '/agent/dashboard'} replace /> : <Register />}
       />
       <Route
         path="/agent/dashboard"

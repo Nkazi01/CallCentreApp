@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useLeads } from '../../hooks/useLeads';
 import { Lead } from '../../types/lead';
 import { User } from '../../types/user';
@@ -14,10 +15,19 @@ import { useToast } from '../../context/ToastContext';
 import { Search, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
+interface BankDetails {
+  bank_name: string;
+  account_number: string;
+  branch_code: string;
+  account_type: string;
+}
+
 export default function AllLeads() {
-  const { leads, updateLeadData, deleteLead } = useLeads();
+  const { leads, updateLeadData, deleteLead, refreshLeads } = useLeads();
   const { showToast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
+  const location = useLocation();
+  const searchQuery = (location.state as { searchQuery?: string } | null)?.searchQuery ?? '';
+  const [searchTerm, setSearchTerm] = useState(searchQuery);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [serviceFilter, setServiceFilter] = useState<string>('All');
   const [agentFilter, setAgentFilter] = useState<string>('All');
@@ -26,6 +36,14 @@ export default function AllLeads() {
   const [newStatus, setNewStatus] = useState<Lead['status']>('New');
   const [newAssignedTo, setNewAssignedTo] = useState('');
   const [agents, setAgents] = useState<User[]>([]);
+  const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
+  const [loadingBankDetails, setLoadingBankDetails] = useState(false);
+
+  useEffect(() => {
+    if (searchQuery) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     supabase
@@ -42,8 +60,19 @@ export default function AllLeads() {
       });
   }, []);
 
+  const agentMap = useMemo(() => {
+    const map: Record<string, User> = {};
+    agents.forEach((agent) => {
+      map[agent.id] = agent;
+      map[agent.username] = agent;
+    });
+    return map;
+  }, [agents]);
+
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
+      const capturedId = agentMap[lead.capturedBy]?.id || lead.capturedBy;
+      const assignedId = agentMap[lead.assignedTo ?? '']?.id || lead.assignedTo;
       const matchesSearch =
         lead.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         lead.idNumber.includes(searchTerm) ||
@@ -53,7 +82,9 @@ export default function AllLeads() {
       const matchesService =
         serviceFilter === 'All' || lead.servicesInterested.includes(serviceFilter);
       const matchesAgent =
-        agentFilter === 'All' || lead.capturedBy === agentFilter || lead.assignedTo === agentFilter;
+        agentFilter === 'All' ||
+        capturedId === agentFilter ||
+        assignedId === agentFilter;
       return matchesSearch && matchesStatus && matchesService && matchesAgent;
     });
   }, [leads, searchTerm, statusFilter, serviceFilter, agentFilter]);
@@ -69,34 +100,68 @@ export default function AllLeads() {
     return <Badge variant={variants[status]}>{status}</Badge>;
   };
 
-  const handleViewLead = (lead: Lead) => {
+  const handleViewLead = async (lead: Lead) => {
     setSelectedLead(lead);
     setNewStatus(lead.status);
     setNewAssignedTo(lead.assignedTo);
     setIsModalOpen(true);
+    setLoadingBankDetails(true);
+    
+    // Fetch banking details
+    const { data, error } = await supabase
+      .from('bank_details')
+      .select('bank_name, account_number, branch_code, account_type')
+      .eq('lead_id', lead.id)
+      .maybeSingle();
+    
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to fetch banking details', error);
+    } else {
+      setBankDetails(data);
+    }
+    setLoadingBankDetails(false);
   };
 
-  const handleUpdateStatus = () => {
+  const handleUpdateStatus = async () => {
     if (!selectedLead) return;
 
-    updateLeadData(selectedLead.id, {
-      status: newStatus,
-      convertedAt: newStatus === 'Converted' ? new Date().toISOString() : undefined,
-    });
+    try {
+      await updateLeadData(selectedLead.id, {
+        status: newStatus,
+        convertedAt: newStatus === 'Converted' ? new Date().toISOString() : undefined,
+      });
 
-    showToast('Status updated successfully', 'success');
-    setSelectedLead({ ...selectedLead, status: newStatus });
+      // Refresh leads to get updated data
+      await refreshLeads();
+      
+      // Update selectedLead with new status immediately
+      setSelectedLead({ ...selectedLead, status: newStatus, convertedAt: newStatus === 'Converted' ? new Date().toISOString() : selectedLead.convertedAt });
+
+      showToast('Status updated successfully', 'success');
+    } catch (error) {
+      showToast('Failed to update status', 'error');
+    }
   };
 
-  const handleReassign = () => {
+  const handleReassign = async () => {
     if (!selectedLead || !newAssignedTo) return;
 
-    updateLeadData(selectedLead.id, {
-      assignedTo: newAssignedTo,
-    });
+    try {
+      await updateLeadData(selectedLead.id, {
+        assignedTo: newAssignedTo,
+      });
 
-    showToast('Lead reassigned successfully', 'success');
-    setSelectedLead({ ...selectedLead, assignedTo: newAssignedTo });
+      // Refresh leads to get updated data
+      await refreshLeads();
+      
+      // Update selectedLead with new assignment
+      setSelectedLead({ ...selectedLead, assignedTo: newAssignedTo });
+
+      showToast('Lead reassigned successfully', 'success');
+    } catch (error) {
+      showToast('Failed to reassign lead', 'error');
+    }
   };
 
   const handleDeleteLead = () => {
@@ -188,7 +253,7 @@ export default function AllLeads() {
             label="Agent"
             options={[
               { value: 'All', label: 'All Agents' },
-              ...agents.map((a) => ({ value: a.username, label: a.fullName })),
+              ...agents.map((a) => ({ value: a.id, label: a.fullName })),
             ]}
             value={agentFilter}
             onChange={(e) => setAgentFilter(e.target.value)}
@@ -240,7 +305,9 @@ export default function AllLeads() {
                       {lead.servicesInterested.length > 2 && '...'}
                     </td>
                     <td className="py-3 px-4">{getStatusBadge(lead.status)}</td>
-                    <td className="py-3 px-4 text-sm text-text-secondary">{lead.capturedBy}</td>
+                    <td className="py-3 px-4 text-sm text-text-secondary">
+                      {agentMap[lead.capturedBy]?.fullName || lead.capturedBy}
+                    </td>
                     <td className="py-3 px-4 text-sm text-text-secondary">{formatDate(lead.createdAt)}</td>
                     <td className="py-3 px-4">
                       <button
@@ -261,7 +328,10 @@ export default function AllLeads() {
       {/* Lead Detail Modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setBankDetails(null);
+        }}
         title={selectedLead ? `Lead ${selectedLead.leadNumber}` : ''}
         size="xl"
       >
@@ -327,6 +397,34 @@ export default function AllLeads() {
                   Delete
                 </Button>
               </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <h3 className="font-semibold mb-3">Banking Details</h3>
+              {loadingBankDetails ? (
+                <p className="text-sm text-text-secondary">Loading banking details...</p>
+              ) : bankDetails ? (
+                <div className="grid grid-cols-2 gap-4 bg-secondary-bg p-4 rounded-md">
+                  <div>
+                    <p className="text-sm text-text-secondary">Bank Name</p>
+                    <p className="font-medium">{bankDetails.bank_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Account Number</p>
+                    <p className="font-medium">{bankDetails.account_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Branch Code</p>
+                    <p className="font-medium">{bankDetails.branch_code}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-text-secondary">Account Type</p>
+                    <p className="font-medium">{bankDetails.account_type}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-text-secondary">No banking details available</p>
+              )}
             </div>
 
             <div className="border-t border-border pt-4">

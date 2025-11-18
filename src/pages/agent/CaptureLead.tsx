@@ -153,7 +153,7 @@ export default function CaptureLead() {
           account_number: data.accountNumber,
           branch_code: data.branchCode,
           account_type: data.accountType,
-          captured_by: newLead.capturedBy,
+          captured_by: user.id,
         }, { onConflict: 'lead_id' });
 
       if (bankError) {

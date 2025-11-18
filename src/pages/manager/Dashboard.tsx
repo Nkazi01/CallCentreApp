@@ -89,7 +89,7 @@ export default function ManagerDashboard() {
   // Agent performance
   const agentPerformance = useMemo(() => {
     return agents.map((agent) => {
-      const agentLeads = leads.filter((l) => l.capturedBy === agent.username);
+      const agentLeads = leads.filter((l) => l.capturedBy === agent.id);
       const converted = agentLeads.filter((l) => l.status === 'Converted');
       return {
         name: agent.fullName,

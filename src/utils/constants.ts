@@ -1,4 +1,12 @@
-export const SERVICES = [
+export interface ServiceDefinition {
+  id: string;
+  name: string;
+  cost: string;
+  requirements: string[];
+  additionalNotes?: string;
+}
+
+export const SERVICES: ServiceDefinition[] = [
   {
     id: 'judgement',
     name: 'JUDGEMENT',

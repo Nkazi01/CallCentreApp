@@ -79,10 +79,7 @@ export default function Agents() {
         .from('users')
         .update({
           full_name: formData.fullName,
-          username: formData.username,
-          email: formData.email,
           active: formData.active,
-          password: formData.password || editingAgent.password,
         })
         .eq('id', editingAgent.id);
 
@@ -95,32 +92,73 @@ export default function Agents() {
 
       showToast('Agent updated successfully', 'success');
     } else {
-      // Create new agent
       if (!formData.password) {
         showToast('Password is required for new agents', 'error');
         return;
       }
 
-      const { data: existingUser, error: existingError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('username', formData.username)
-        .maybeSingle();
+      // Use RPC function to check if user exists (bypasses RLS)
+      const { data: userExists, error: checkError } = await supabase.rpc('user_exists', {
+        check_username: formData.username,
+        check_email: formData.email,
+      });
 
-      if (existingError) {
+      if (checkError) {
         // eslint-disable-next-line no-console
-        console.error('Failed to validate username', existingError);
-      }
-
-      if (existingUser) {
-        showToast('Username already exists', 'error');
+        console.error('Failed to validate agent details', checkError);
+        showToast('Unable to validate agent details', 'error');
         return;
       }
 
-      const { error } = await supabase.from('users').insert([
+      if (userExists) {
+        showToast('Username or email already exists', 'error');
+        return;
+      }
+
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        showToast('Unable to verify current session', 'error');
+        return;
+      }
+
+      const managerSession = sessionData.session;
+
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.fullName,
+            username: formData.username,
+            role: 'agent',
+          },
+          emailRedirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (signUpError || !signUpData.user) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to create authentication record', signUpError);
+        showToast(signUpError?.message || 'Failed to create agent account', 'error');
+        return;
+      }
+
+      if (signUpData.session && managerSession) {
+        await supabase.auth.setSession({
+          access_token: managerSession.access_token,
+          refresh_token: managerSession.refresh_token,
+        });
+      }
+
+      const { error: profileError } = await supabase.from('users').insert([
         {
+          id: signUpData.user.id,
           username: formData.username,
-          password: formData.password,
+          password: '', // Empty password since we use Supabase Auth
           role: 'agent',
           full_name: formData.fullName,
           email: formData.email,
@@ -128,10 +166,10 @@ export default function Agents() {
         },
       ]);
 
-      if (error) {
+      if (profileError) {
         // eslint-disable-next-line no-console
-        console.error('Failed to create agent', error);
-        showToast('Failed to create agent', 'error');
+        console.error('Failed to save agent profile', profileError);
+        showToast('Failed to save agent profile', 'error');
         return;
       }
 
@@ -160,7 +198,7 @@ export default function Agents() {
   };
 
   const getAgentStats = (agent: User) => {
-    const agentLeads = leads.filter((l) => l.capturedBy === agent.username);
+    const agentLeads = leads.filter((l) => l.capturedBy === agent.id || l.capturedBy === agent.username);
     const converted = agentLeads.filter((l) => l.status === 'Converted');
     return {
       totalLeads: agentLeads.length,
@@ -276,6 +314,7 @@ export default function Agents() {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             required
+            disabled={!!editingAgent}
           />
           <Input
             label={editingAgent ? 'New Password (leave blank to keep current)' : 'Password'}
