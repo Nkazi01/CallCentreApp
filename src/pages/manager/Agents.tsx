@@ -154,22 +154,50 @@ export default function Agents() {
         });
       }
 
-      const { error: profileError } = await supabase.from('users').insert([
-        {
-          id: signUpData.user.id,
-          username: formData.username,
-          password: '', // Empty password since we use Supabase Auth
-          role: 'agent',
-          full_name: formData.fullName,
-          email: formData.email,
-          active: formData.active,
-        },
-      ]);
+      // Check if profile was already created by trigger
+      // Note: If check fails due to RLS, we'll assume profile doesn't exist and try to insert
+      const { data: existingProfile } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', signUpData.user.id)
+        .single();
+
+      const profileData = {
+        id: signUpData.user.id,
+        username: formData.username,
+        password: '', // Empty password since we use Supabase Auth
+        role: 'agent',
+        full_name: formData.fullName,
+        email: formData.email,
+        active: formData.active,
+      };
+
+      let profileError;
+
+      if (existingProfile) {
+        // Profile exists (created by trigger), update it
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            username: formData.username,
+            full_name: formData.fullName,
+            email: formData.email,
+            active: formData.active,
+          })
+          .eq('id', signUpData.user.id);
+        profileError = updateError;
+      } else {
+        // Profile doesn't exist, insert it
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert([profileData]);
+        profileError = insertError;
+      }
 
       if (profileError) {
         // eslint-disable-next-line no-console
         console.error('Failed to save agent profile', profileError);
-        showToast('Failed to save agent profile', 'error');
+        showToast(`Failed to save agent profile: ${profileError.message}`, 'error');
         return;
       }
 
